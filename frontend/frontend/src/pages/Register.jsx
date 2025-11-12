@@ -1,27 +1,46 @@
 import { useState } from "react";
-import api from "../api";
+import { ethers } from "ethers";
+import crypto from "crypto-js"; // npm install crypto-js
 
 export default function Register() {
   const [id, setId] = useState("");
   const [data, setData] = useState("");
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [txHash, setTxHash] = useState("");
+  const [hashValue, setHashValue] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
-    setResult(null);
-    setError(null);
+  const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+  const ABI = [
+    "function registerCertificate(string certId, bytes32 hashValue) public",
+    "function verifyCertificate(string certId) public view returns (bytes32)",
+  ];
+
+  const handleRegister = async () => {
+    setError("");
+    setTxHash("");
+    setHashValue("");
     setLoading(true);
 
     try {
-      const res = await api.post("/certs/register", { id, data });
-      setResult(res.data);
+      if (!window.ethereum) throw new Error("MetaMask not detected. Please install it.");
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []); //triggers MetaMask popup
+      const signer = await provider.getSigner();
+
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+      const hash = "0x" + crypto.SHA256(data).toString(crypto.enc.Hex);
+      setHashValue(hash);
+
+      const tx = await contract.registerCertificate(id, hash);
+      await tx.wait(); // wait for confirmation
+
+      setTxHash(tx.hash);
     } catch (err) {
-      const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        "Registration failed";
-      setError(msg);
+      console.error("Register error:", err);
+      setError(err.message || "Transaction failed");
     }
 
     setLoading(false);
@@ -49,29 +68,29 @@ export default function Register() {
 
       <button
         className="button"
-        onClick={handleSubmit}
+        onClick={handleRegister}
         disabled={loading}
         style={loading ? { opacity: 0.6, cursor: "not-allowed" } : {}}
       >
-        {loading ? "Registering..." : "Register"}
+        {loading ? "Waiting for MetaMask..." : "Register via MetaMask"}
       </button>
 
-      {result && (
-  <div className="success-box">
-    ✅ <strong>Certificate Stored On-Chain</strong>
-    <br />
-    <strong>Hash:</strong> {result.hashValue}
-    <br />
-    <strong>Transaction:</strong>{" "}
-    <a
-      href={`https://sepolia.etherscan.io/tx/${result.txHash}`}
-      target="_blank"
-    >
-      View on Explorer
-    </a>
-  </div>
-)}
-
+      {txHash && (
+        <div className="success-box">
+          ✅ <strong>Certificate Stored On-Chain</strong>
+          <br />
+          <strong>Hash:</strong> {hashValue}
+          <br />
+          <strong>Transaction:</strong>{" "}
+          <a
+            href={`https://sepolia.etherscan.io/tx/${txHash}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on Explorer
+          </a>
+        </div>
+      )}
 
       {error && <div className="error">❌ {error}</div>}
     </div>

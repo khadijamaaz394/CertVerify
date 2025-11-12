@@ -1,60 +1,88 @@
 import { useState } from "react";
-import api from "../api";
+import { ethers } from "ethers";
 
 export default function Verify() {
   const [id, setId] = useState("");
-  const [result, setResult] = useState(null);
+  const [storedHash, setStoredHash] = useState("");
   const [notFound, setNotFound] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+  const ABI = [
+    "function registerCertificate(string certId, bytes32 hashValue) public",
+    "function verifyCertificate(string certId) public view returns (bytes32)",
+  ];
 
   const handleVerify = async () => {
-  setResult(null);
-  setNotFound(false);
+    setStoredHash("");
+    setNotFound(false);
+    setLoading(true);
 
-  try {
-    const res = await api.post("/certs/verify", { id });
+    try {
+      if (!window.ethereum) throw new Error("MetaMask not detected.");
 
-    if (!res.data.storedHash || res.data.storedHash === "0x0" || /^0x0+$/.test(res.data.storedHash)) {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+      const hashValue = await contract.verifyCertificate(id);
+
+      // If hashValue is 0x0, no certificate exists
+      if (
+        !hashValue ||
+        hashValue === "0x" ||
+        hashValue === "0x0000000000000000000000000000000000000000000000000000000000000000"
+      ) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
+
+      setStoredHash(hashValue);
+    } catch (error) {
+      console.error("Verification error:", error);
       setNotFound(true);
-      return;
     }
 
-    setResult(res.data.storedHash);
-  } catch (error) {
-    console.error("Verify error:", error);
-    setNotFound(true);
-  }
-};
+    setLoading(false);
+  };
 
   return (
-    <div className="page-container fade-in">
-      <div className="card glass-card">
-        <h2>Verify Certificate</h2>
+    <div className="card">
+      <h2 className="title">Verify Certificate</h2>
 
-        <label>Certificate ID</label>
-        <input
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          placeholder="Enter certificate ID"
-        />
+      <label className="label">Certificate ID</label>
+      <input
+        className="input"
+        value={id}
+        onChange={(e) => setId(e.target.value)}
+        placeholder="Enter certificate ID"
+      />
 
-        <button className="glow-btn" onClick={handleVerify}>
-          Verify
-        </button>
+      <button
+        className="button"
+        onClick={handleVerify}
+        disabled={loading}
+        style={loading ? { opacity: 0.6, cursor: "not-allowed" } : {}}
+      >
+        {loading ? "Verifying..." : "Verify"}
+      </button>
 
-        {result && (
-          <div className="success-box">
-            <div className="success-title">✅ Certificate Verified</div>
-            <div className="success-label">Stored Hash:</div>
-            <div className="hash-text">{result}</div>
-          </div>
-        )}
+      {storedHash && (
+        <div className="success-box">
+          ✅ <strong>Certificate Verified</strong>
+          <br />
+          <strong>Stored Hash:</strong> {storedHash}
+        </div>
+      )}
 
-        {notFound && (
-          <div className="error-box">
-            ❌ Certificate not found.
-          </div>
-        )}
-      </div>
+      {notFound && (
+        <div className="error">
+          ❌ Certificate not found.
+        </div>
+      )}
     </div>
   );
 }
