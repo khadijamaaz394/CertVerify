@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ethers } from "ethers";
-import crypto from "crypto-js"; // npm install crypto-js
+import crypto from "crypto-js"; 
 
 export default function Register() {
   const [id, setId] = useState("");
