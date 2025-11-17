@@ -21,7 +21,6 @@ type Metadata = {
   issueDate: string;
   expiryDate: string | null;
   certificateType: string;
-  fileCid?: string | null;
 };
 
 const Verify: React.FC = () => {
@@ -47,9 +46,7 @@ const Verify: React.FC = () => {
     const trimmedCid = metadataCid.trim();
 
     if (!trimmedId || !trimmedCid) {
-      setError(
-        "Please enter both Certificate ID and Metadata CID."
-      );
+      setError("Please enter both Certificate ID and Metadata CID.");
       return;
     }
 
@@ -82,9 +79,9 @@ const Verify: React.FC = () => {
 
       setStoredHash(onChainHash);
 
-      // 2) Fetch metadata JSON from IPFS
+      // 2) Fetch metadata JSON from your local IPFS gateway
       const res = await fetch(
-        `https://gateway.pinata.cloud/ipfs/${trimmedCid}`
+        `http://127.0.0.1:8080/ipfs/${trimmedCid}`
       );
 
       if (!res.ok) {
@@ -96,13 +93,13 @@ const Verify: React.FC = () => {
       const json = (await res.json()) as Metadata;
       setMetadata(json);
 
-      // 3) Re-hash the JSON
+      // 3) Re-hash the JSON string exactly as during registration
       const metadataString = JSON.stringify(json);
       const calculatedHash = sha256(
         stringToBytes(metadataString)
       ) as Hex;
 
-      // 4) Compare on-chain hash vs IPFS metadata hash
+      // 4) Compare on-chain hash vs IPFS hash
       const match = calculatedHash === onChainHash;
       setVerified(match);
     } catch (err: any) {
@@ -123,9 +120,7 @@ const Verify: React.FC = () => {
 
         <form onSubmit={handleVerify}>
           <div className="form-field">
-            <label className="form-label">
-              Certificate ID
-            </label>
+            <label className="form-label">Certificate ID</label>
             <input
               className="input"
               value={certId}
@@ -135,14 +130,12 @@ const Verify: React.FC = () => {
           </div>
 
           <div className="form-field">
-            <label className="form-label">
-              Metadata CID (IPFS)
-            </label>
+            <label className="form-label">Metadata CID (IPFS)</label>
             <input
               className="input"
               value={metadataCid}
               onChange={(e) => setMetadataCid(e.target.value)}
-              placeholder="Paste metadata CID here"
+              placeholder="Paste metadata CID from registration"
             />
           </div>
 
@@ -190,14 +183,14 @@ const Verify: React.FC = () => {
               {metadata.studentName}
             </p>
             <p>
-              <strong>Course:</strong> {metadata.course}
-            </p>
+              <strong>Course:</strong> {metadata.course}</p>
             <p>
               <strong>Institute:</strong>{" "}
               {metadata.institute}
             </p>
             <p>
-              <strong>Issuer:</strong> {metadata.issuer}
+              <strong>Issuer:</strong>{" "}
+              {metadata.issuer}
             </p>
             <p>
               <strong>Issue Date:</strong>{" "}
@@ -213,19 +206,6 @@ const Verify: React.FC = () => {
               <strong>Type:</strong>{" "}
               {metadata.certificateType}
             </p>
-            {metadata.fileCid && (
-              <p>
-                <strong>File:</strong>{" "}
-                <a
-                  className="hash-link"
-                  href={`https://gateway.pinata.cloud/ipfs/${metadata.fileCid}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View File
-                </a>
-              </p>
-            )}
           </div>
         )}
       </div>

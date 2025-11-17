@@ -30,7 +30,19 @@ if (!addr) {
 
 export const certificateStorageAddress = addr as `0x${string}`;
 
-// CertificateStorage:
-// mapping(string => bytes32) public certificateHashes;
-// function registerCertificate(string certId, bytes32 hashValue);
-// function verifyCertificate(string certId) view returns (bytes32);
+
+// SPDX-License-Identifier: MIT
+// pragma solidity ^0.8.0;
+//
+// contract CertificateStorage {
+//     mapping(string => bytes32) public certificateHashes;
+//
+//     function registerCertificate(string memory certId, bytes32 hashValue) public {
+//         require(certificateHashes[certId] == 0, "Certificate ID already exists");
+//         certificateHashes[certId] = hashValue;
+//     }
+//
+//     function verifyCertificate(string memory certId) public view returns (bytes32) {
+//         return certificateHashes[certId];
+//     }
+// }

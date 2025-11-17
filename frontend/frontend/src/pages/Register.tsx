@@ -1,22 +1,14 @@
-import React, {
-  useState,
-  ChangeEvent,
-  FormEvent,
-} from "react";
+import React, { useState, FormEvent } from "react";
 import { usePublicClient, useWriteContract } from "wagmi";
 import { sha256, stringToBytes, type Hex } from "viem";
 import {
   certificateStorageAbi,
   certificateStorageAddress,
 } from "../utils/contract";
-import {
-  uploadFileToIPFS,
-  uploadJSONToIPFS,
-} from "../utils/ipfs";
+import { uploadJSONToIPFS } from "../utils/ipfs";
 
 type RegisterResult = {
   metadataCid: string;
-  fileCid: string | null;
   storedHash: Hex;
 };
 
@@ -29,7 +21,6 @@ const Register: React.FC = () => {
   const [issueDate, setIssueDate] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
   const [certificateType, setCertificateType] = useState("");
-  const [file, setFile] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RegisterResult | null>(null);
@@ -37,11 +28,6 @@ const Register: React.FC = () => {
 
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
-
-  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] || null;
-    setFile(f);
-  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -75,14 +61,7 @@ const Register: React.FC = () => {
     try {
       setLoading(true);
 
-      // Upload file 
-      let fileCid: string | null = null;
-      if (file) {
-        const uploaded = await uploadFileToIPFS(file);
-        fileCid = uploaded.cid;
-      }
-
-      // Build metadata JSON
+      // 1) Build metadata JSON
       const metadata = {
         certId: trimmedId,
         studentName: studentName.trim(),
@@ -92,23 +71,22 @@ const Register: React.FC = () => {
         issueDate: issueDate.trim(),
         expiryDate: expiryDate.trim() || null,
         certificateType: certificateType.trim(),
-        fileCid,
       };
 
-      // Upload metadata JSON to IPFS
+      // 2) Upload metadata JSON to your local IPFS node
       const metadataUpload = await uploadJSONToIPFS(
         metadata,
-        `certificate-${trimmedId}`
+        `certificate-${trimmedId}.json`
       );
       const metadataCid = metadataUpload.cid;
 
-      // Hash the metadata JSON (stringified)
+      // 3) Hash the metadata JSON (stringified)
       const metadataString = JSON.stringify(metadata);
       const hashValue = sha256(
         stringToBytes(metadataString)
       ) as Hex;
 
-      // Store hash on-chain (MetaMask will pop here)
+      // 4) Store hash on-chain (MetaMask pops up here)
       const txHash = await writeContractAsync({
         address: certificateStorageAddress,
         abi: certificateStorageAbi,
@@ -116,15 +94,14 @@ const Register: React.FC = () => {
         args: [trimmedId, hashValue],
       });
 
-      // confirmation
+      // Optional: wait for confirmation
       await publicClient.waitForTransactionReceipt({
         hash: txHash,
       });
 
-      // Save local result for UI
+      // 5) Save result for UI
       setResult({
         metadataCid,
-        fileCid,
         storedHash: hashValue,
       });
     } catch (err: any) {
@@ -229,18 +206,6 @@ const Register: React.FC = () => {
             />
           </div>
 
-          <div className="form-field">
-            <label className="form-label">
-              Certificate File (PDF / Image)
-            </label>
-            <input
-              className="input"
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg"
-              onChange={onFileChange}
-            />
-          </div>
-
           <button
             type="submit"
             className="btn-primary"
@@ -263,28 +228,13 @@ const Register: React.FC = () => {
               <span className="hash-label">Metadata CID:</span>
               <a
                 className="hash-link"
-                href={`https://gateway.pinata.cloud/ipfs/${result.metadataCid}`}
+                href={`http://127.0.0.1:8080/ipfs/${result.metadataCid}`}
                 target="_blank"
                 rel="noreferrer"
               >
                 {result.metadataCid}
               </a>
             </div>
-            {result.fileCid && (
-              <div className="hash-row">
-                <span className="hash-label">
-                  File CID:
-                </span>
-                <a
-                  className="hash-link"
-                  href={`https://gateway.pinata.cloud/ipfs/${result.fileCid}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {result.fileCid}
-                </a>
-              </div>
-            )}
             <div className="hash-row">
               <span className="hash-label">Stored Hash:</span>
               <span className="hash-value">
