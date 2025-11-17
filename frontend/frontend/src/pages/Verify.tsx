@@ -1,7 +1,10 @@
-// src/pages/Verify.tsx
-import React, { useState } from "react";
+import React, { useState, FormEvent } from "react";
 import { usePublicClient } from "wagmi";
-import type { Hex } from "viem";
+import {
+  sha256,
+  stringToBytes,
+  type Hex,
+} from "viem";
 import {
   certificateStorageAbi,
   certificateStorageAddress,
@@ -9,61 +12,105 @@ import {
 
 const ZERO_BYTES32 = ("0x" + "0".repeat(64)) as `0x${string}`;
 
+type Metadata = {
+  certId: string;
+  studentName: string;
+  course: string;
+  institute: string;
+  issuer: string;
+  issueDate: string;
+  expiryDate: string | null;
+  certificateType: string;
+  fileCid?: string | null;
+};
+
 const Verify: React.FC = () => {
-  const [certId, setCertId] = useState<string>("");
+  const [certId, setCertId] = useState("");
+  const [metadataCid, setMetadataCid] = useState("");
 
   const [storedHash, setStoredHash] = useState<Hex | null>(null);
-  const [notFound, setNotFound] = useState<boolean>(false);
+  const [metadata, setMetadata] = useState<Metadata | null>(null);
+  const [verified, setVerified] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
 
   const publicClient = usePublicClient();
 
-  const handleVerify = async () => {
+  const handleVerify = async (e: FormEvent) => {
+    e.preventDefault();
     setError(null);
+    setVerified(null);
     setStoredHash(null);
-    setNotFound(false);
+    setMetadata(null);
 
     const trimmedId = certId.trim();
+    const trimmedCid = metadataCid.trim();
 
-    if (!trimmedId) {
-      setError("Please enter a Certificate ID.");
+    if (!trimmedId || !trimmedCid) {
+      setError(
+        "Please enter both Certificate ID and Metadata CID."
+      );
       return;
     }
 
     if (!certificateStorageAddress) {
-      setError("Contract address is not configured.");
+      setError("Contract address not configured.");
       return;
     }
 
     if (!publicClient) {
-      setError("Public client not available. Check wagmi configuration.");
+      setError("Public client not available.");
       return;
     }
 
     try {
       setLoading(true);
 
-      const hash = (await publicClient.readContract({
-        abi: certificateStorageAbi,
+      // 1) Read hash from smart contract
+      const onChainHash = (await publicClient.readContract({
         address: certificateStorageAddress,
+        abi: certificateStorageAbi,
         functionName: "verifyCertificate",
         args: [trimmedId],
       })) as Hex;
 
-      if (!hash || hash === ZERO_BYTES32) {
-        setNotFound(true);
+      if (!onChainHash || onChainHash === ZERO_BYTES32) {
+        setError("No certificate found for this ID.");
+        setLoading(false);
         return;
       }
 
-      setStoredHash(hash);
+      setStoredHash(onChainHash);
+
+      // 2) Fetch metadata JSON from IPFS
+      const res = await fetch(
+        `https://gateway.pinata.cloud/ipfs/${trimmedCid}`
+      );
+
+      if (!res.ok) {
+        setError("Failed to fetch metadata from IPFS.");
+        setLoading(false);
+        return;
+      }
+
+      const json = (await res.json()) as Metadata;
+      setMetadata(json);
+
+      // 3) Re-hash the JSON
+      const metadataString = JSON.stringify(json);
+      const calculatedHash = sha256(
+        stringToBytes(metadataString)
+      ) as Hex;
+
+      // 4) Compare on-chain hash vs IPFS metadata hash
+      const match = calculatedHash === onChainHash;
+      setVerified(match);
     } catch (err: any) {
       console.error("Verify error:", err);
-      const msg =
-        err?.shortMessage ||
+      setError(
         err?.message ||
-        "Failed to verify certificate. See console for details.";
-      setError(msg);
+          "Verification failed. Check console for details."
+      );
     } finally {
       setLoading(false);
     }
@@ -74,27 +121,39 @@ const Verify: React.FC = () => {
       <div className="card">
         <h1 className="card-title">Verify Certificate</h1>
 
-        <div className="form-field">
-          <label className="form-label" htmlFor="verifyId">
-            Certificate ID
-          </label>
-          <input
-            id="verifyId"
-            className="input"
-            placeholder="e.g. uni-12345"
-            value={certId}
-            onChange={(e) => setCertId(e.target.value)}
-          />
-        </div>
+        <form onSubmit={handleVerify}>
+          <div className="form-field">
+            <label className="form-label">
+              Certificate ID
+            </label>
+            <input
+              className="input"
+              value={certId}
+              onChange={(e) => setCertId(e.target.value)}
+              placeholder="e.g. CERT-2025-001"
+            />
+          </div>
 
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={loading}
-          onClick={handleVerify}
-        >
-          {loading ? "Verifying…" : "Verify"}
-        </button>
+          <div className="form-field">
+            <label className="form-label">
+              Metadata CID (IPFS)
+            </label>
+            <input
+              className="input"
+              value={metadataCid}
+              onChange={(e) => setMetadataCid(e.target.value)}
+              placeholder="Paste metadata CID here"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={loading}
+          >
+            {loading ? "Verifying…" : "Verify"}
+          </button>
+        </form>
 
         {error && (
           <div className="alert alert-error">
@@ -102,19 +161,71 @@ const Verify: React.FC = () => {
           </div>
         )}
 
-        {notFound && (
-          <div className="alert alert-error">
-            ❌ Certificate not found.
+        {storedHash && (
+          <div className="alert">
+            <strong>On-chain Hash:</strong>{" "}
+            <span className="hash-value">{storedHash}</span>
           </div>
         )}
 
-        {storedHash && (
+        {verified !== null && !error && (
+          <div
+            className={
+              verified
+                ? "alert alert-success"
+                : "alert alert-error"
+            }
+          >
+            {verified
+              ? "✅ Certificate is VALID (hash matches IPFS metadata)."
+              : "❌ Certificate is INVALID (hash mismatch)."}
+          </div>
+        )}
+
+        {metadata && verified && (
           <div className="alert alert-success">
-            <strong>Certificate Verified</strong>
-            <div className="hash-row">
-              <span className="hash-label">Stored Hash:</span>
-              <span className="hash-value">{storedHash}</span>
-            </div>
+            <strong>Metadata Details</strong>
+            <p>
+              <strong>Student:</strong>{" "}
+              {metadata.studentName}
+            </p>
+            <p>
+              <strong>Course:</strong> {metadata.course}
+            </p>
+            <p>
+              <strong>Institute:</strong>{" "}
+              {metadata.institute}
+            </p>
+            <p>
+              <strong>Issuer:</strong> {metadata.issuer}
+            </p>
+            <p>
+              <strong>Issue Date:</strong>{" "}
+              {metadata.issueDate}
+            </p>
+            {metadata.expiryDate && (
+              <p>
+                <strong>Expiry Date:</strong>{" "}
+                {metadata.expiryDate}
+              </p>
+            )}
+            <p>
+              <strong>Type:</strong>{" "}
+              {metadata.certificateType}
+            </p>
+            {metadata.fileCid && (
+              <p>
+                <strong>File:</strong>{" "}
+                <a
+                  className="hash-link"
+                  href={`https://gateway.pinata.cloud/ipfs/${metadata.fileCid}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View File
+                </a>
+              </p>
+            )}
           </div>
         )}
       </div>
